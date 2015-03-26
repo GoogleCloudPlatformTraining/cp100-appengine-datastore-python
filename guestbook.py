@@ -1,14 +1,26 @@
+#!/usr/bin/env python
+#
+# Copyright 2015 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 import jinja2
 import os
 import webapp2
 
-from google.appengine.api import users
 from google.appengine.ext import ndb
 
-
-# We set a parent key on the 'Greetings' to ensure that they are all in the same
-# entity group. Queries across the single entity group will be consistent.
-# However, the write rate should be limited to ~1/second.
 
 def guestbook_key(guestbook_name='default_guestbook'):
     return ndb.Key('Guestbook', guestbook_name)
@@ -18,40 +30,35 @@ jinja_environment = jinja2.Environment(
     extensions=['jinja2.ext.autoescape'],
     autoescape=True)
 
+
 class Greeting(ndb.Model):
-    author = ndb.UserProperty()
-    content = ndb.StringProperty(indexed=False)
+    content = ndb.StringProperty()
     date = ndb.DateTimeProperty(auto_now_add=True)
+
 
 class MainPage(webapp2.RequestHandler):
     def get(self):
-        greetings_query = Greeting.query(ancestor=guestbook_key()).order(-Greeting.date)
+        greetings_query = Greeting.query(
+            ancestor=guestbook_key()).order(-Greeting.date)
         greetings = greetings_query.fetch(10)
-
-        if users.get_current_user():
-            url = users.create_logout_url(self.request.uri)
-            url_linktext = 'Logout'
-        else:
-            url = users.create_login_url(self.request.uri)
-            url_linktext = 'Login'
-
         template = jinja_environment.get_template('index.html')
-        self.response.out.write(template.render(greetings=greetings,
-                                                url=url,
-                                                url_linktext=url_linktext))
+        self.response.out.write(template.render(entries=greetings))
 
-class Guestbook(webapp2.RequestHandler):
     def post(self):
         greeting = Greeting(parent=guestbook_key())
-
-        if users.get_current_user():
-            greeting.author = users.get_current_user()
-
-        greeting.content = self.request.get('content')
+        greeting.content = self.request.get('entry')
         greeting.put()
+        self.redirect('/')
+
+
+class Clear(webapp2.RequestHandler):
+    def post(self):
+        greetings_query = Greeting.query(
+            ancestor=guestbook_key()).fetch(keys_only=True)
+        ndb.delete_multi(greetings_query)
         self.redirect('/')
 
 application = webapp2.WSGIApplication([
     ('/', MainPage),
-    ('/sign', Guestbook),
+    ('/clear', Clear),
 ], debug=True)
